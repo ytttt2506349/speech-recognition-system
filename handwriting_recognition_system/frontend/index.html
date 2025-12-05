@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中英文手写识别系统</title>
+    <!-- 仅修改CSS，JS逻辑基本不变 -->
+    <style>
+        /* 全局淡粉色高级配色 */
+        :root {
+            --primary-pink: #fdf2f8; /* 淡粉背景 */
+            --secondary-pink: #fef7fb; /* 浅粉卡片 */
+            --border-pink: #e8c4d0; /* 豆沙粉边框 */
+            --button-pink: #d8a7b1; /* 按钮主色 */
+            --button-hover: #c78e9b; /* 按钮悬停 */
+            --text-dark: #4a4a4a; /* 深色文字（高级感对比） */
+            --text-light: #7a6f72; /* 浅色文字 */
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft Yahei", "PingFang SC", sans-serif;
+        }
+
+        body {
+            background-color: var(--primary-pink);
+            color: var(--text-dark);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 600;
+            color: var(--text-dark);
+            letter-spacing: 2px;
+        }
+
+        /* 左右分栏布局（核心修改） */
+        .main-container {
+            display: flex;
+            gap: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* 左侧手写区域（大尺寸） */
+        .draw-area {
+            flex: 7; /* 占70%宽度 */
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        #drawCanvas {
+            border: 3px solid var(--border-pink);
+            border-radius: 12px;
+            background-color: #fff;
+            cursor: crosshair;
+            width: 100%;
+            height: 500px; /* 大尺寸手写画布 */
+        }
+
+        /* 右侧结果+按钮区域 */
+        .result-area {
+            flex: 3; /* 占30%宽度 */
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 识别结果框样式（高级卡片） */
+        .result-card {
+            background-color: var(--secondary-pink);
+            border: 1px solid var(--border-pink);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(216, 167, 177, 0.1);
+        }
+
+        .result-card h3 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: var(--text-dark);
+            border-bottom: 1px solid var(--border-pink);
+            padding-bottom: 8px;
+        }
+
+        .result-item {
+            margin: 10px 0;
+            font-size: 16px;
+        }
+
+        .result-item span {
+            color: var(--button-hover);
+            font-weight: 500;
+        }
+
+        /* 功能按钮样式（清晰标注+高级感） */
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--button-pink);
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background-color: var(--button-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(216, 167, 177, 0.2);
+        }
+
+        button:disabled {
+            background-color: #e9d2d7;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* 响应式适配（小屏自动堆叠） */
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+            #drawCanvas {
+                height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>中英文手写识别</h1>
+    <!-- 左右分栏容器（新增布局） -->
+    <div class="main-container">
+        <!-- 左侧：大尺寸手写区域 -->
+        <div class="draw-area">
+            <canvas id="drawCanvas"></canvas>
+        </div>
+
+        <!-- 右侧：识别结果+功能按钮 -->
+        <div class="result-area">
+            <!-- 识别结果显示框 -->
+            <div class="result-card">
+                <h3>识别结果</h3>
+                <div class="result-item">中文识别：<span id="chineseResult">未识别</span></div>
+                <div class="result-item">英文识别：<span id="englishResult">未识别</span></div>
+            </div>
+
+            <!-- 功能按钮（清晰标注） -->
+            <div class="btn-group">
+                <button id="startWrite">开始书写</button>
+                <button id="recognizeBtn">识别</button>
+                <button id="clearBtn">清除画布</button>
+                <button id="undoBtn">撤销上一步</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 核心JS逻辑（几乎未改，仅新增“开始书写”开关） -->
+    <script>
+        // 手写画布核心类（原逻辑保留）
+        class CanvasDrawer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext("2d");
+                this.config = {
+                    lineWidth: 6,
+                    strokeStyle: "#4a4a4a", // 深色笔迹（与淡粉色对比）
+                    lineCap: "round",
+                    isDrawing: false, // 书写状态开关
+                    canWrite: false, // 新增：是否允许书写
+                    lastX: 0,
+                    lastY: 0,
+                    pathHistory: [],
+                    currentPath: []
+                };
+                this._initCanvas();
+                this._bindEvents();
+            }
+
+            _initCanvas() {
+                // 画布尺寸自适应父容器（大尺寸）
+                this.canvas.width = this.canvas.parentElement.clientWidth;
+                this.canvas.height = this.canvas.parentElement.clientHeight;
+                this.ctx.lineWidth = this.config.lineWidth;
+                this.ctx.strokeStyle = this.config.strokeStyle;
+                this.ctx.lineCap = this.config.lineCap;
+            }
+
+            _bindEvents() {
+                // 仅在允许书写时触发绘画
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (!this.config.canWrite) return;
+                    this.config.isDrawing = true;
+                    const pos = this._getPos(e);
+                    this.config.lastX = pos.x;
+                    this.config.lastY = pos.y;
+                    this.config.currentPath = [[pos.x, pos.y]];
+                });
+
+                this.canvas.addEventListener('mousemove', (e) => {
+                    if (!this.config.canWrite || !this.config.isDrawing) return;
+                    const pos = this._getPos(e);
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(this.config.lastX, this.config.lastY);
+                    this.ctx.lineTo(pos.x, pos.y);
+                    this.ctx.stroke();
+                    this.config.lastX = pos.x;
+                    this.config.lastY = pos.y;
+                    this.config.currentPath.push([pos.x, pos.y]);
+                });
+
+                ['mouseup', 'mouseout'].forEach(event => {
+                    this.canvas.addEventListener(event, () => {
+                        if (this.config.isDrawing) {
+                            this.config.isDrawing = false;
+                            this.config.pathHistory.push(this.config.currentPath);
+                            this.config.currentPath = [];
+                        }
+                    });
+                });
+
+                // 窗口大小变化时重绘画布
+                window.addEventListener('resize', () => this._initCanvas());
+            }
+
+            _getPos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: (e.clientX - rect.left) * (this.canvas.width / rect.width),
+                    y: (e.clientY - rect.top) * (this.canvas.height / rect.height)
+                };
+            }
+
+            // 开启/关闭书写功能（新增）
+            toggleWrite(enable) {
+                this.config.canWrite = enable;
+            }
+
+            clear() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.config.pathHistory = [];
+                this.config.currentPath = [];
+                return this;
+            }
+
+            undo() {
+                if (this.config.pathHistory.length === 0) return this;
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.config.pathHistory.pop();
+                this._redrawPaths();
+                return this;
+            }
+
+            _redrawPaths() {
+                this.config.pathHistory.forEach(path => {
+                    if (path.length < 2) return;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(path[0][0], path[0][1]);
+                    path.forEach(pos => this.ctx.lineTo(pos[0], pos[1]));
+                    this.ctx.stroke();
+                });
+            }
+
+            getBlob(format = "image/png") {
+                return new Promise(resolve => {
+                    this.canvas.toBlob(blob => resolve(blob), format);
+                });
+            }
+        }
+
+        // 识别请求类（原逻辑保留）
+        class Recognizer {
+            constructor(apiUrl, resultEls) {
+                this.apiUrl = apiUrl;
+                this.chineseEl = resultEls.chinese;
+                this.englishEl = resultEls.english;
+            }
+
+            async recognize(blob) {
+                try {
+                    this.chineseEl.textContent = "识别中...";
+                    this.englishEl.textContent = "识别中...";
+                    const formData = new FormData();
+                    formData.append("image", blob, "handwriting.png");
+                    const res = await fetch(this.apiUrl, {
+                        method: "POST",
+                        body: formData
+                    });
+                    const data = await res.json();
+                    this.chineseEl.textContent = data.chinese || "识别失败";
+                    this.englishEl.textContent = data.english || "识别失败";
+                } catch (err) {
+                    this.chineseEl.textContent = "识别失败";
+                    this.englishEl.textContent = "识别失败";
+                    console.error(err);
+                }
+            }
+        }
+
+        // 页面初始化（仅新增“开始书写”按钮逻辑）
+        document.addEventListener("DOMContentLoaded", () => {
+            // 初始化画布和识别器
+            const drawer = new CanvasDrawer("drawCanvas");
+            const recognizer = new Recognizer("http://127.0.0.1:5000/recognize", {
+                chinese: document.getElementById("chineseResult"),
+                english: document.getElementById("englishResult")
+            });
+
+            // 功能按钮绑定（清晰标注）
+            const startBtn = document.getElementById("startWrite");
+            startBtn.addEventListener("click", () => {
+                const isWriting = !drawer.config.canWrite;
+                drawer.toggleWrite(isWriting);
+                startBtn.textContent = isWriting ? "停止书写" : "开始书写";
+                startBtn.style.backgroundColor = isWriting ? "#a8707a" : "var(--button-pink)";
+            });
+
+            document.getElementById("recognizeBtn").addEventListener("click", () => {
+                drawer.getBlob().then(blob => recognizer.recognize(blob));
+            });
+
+            document.getElementById("clearBtn").addEventListener("click", () => {
+                drawer.clear();
+                document.getElementById("chineseResult").textContent = "未识别";
+                document.getElementById("englishResult").textContent = "未识别";
+            });
+
+            document.getElementById("undoBtn").addEventListener("click", () => {
+                drawer.undo();
+            });
+        });
+    </script>
+</body>
+</html>
